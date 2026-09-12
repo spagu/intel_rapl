@@ -29,6 +29,12 @@ a laptop whose cooling had degraded.
   an interval of almost nothing. The sampler now keeps the previous result
   and only recomputes when at least 200 ms have passed.
 
+### Tested on
+
+Dell XPS 13 9343, Core i7-5600U (Broadwell-U), 15 W package TDP, BIOS A20,
+FreeBSD 15.1-RELEASE-p3 amd64. The limit register is locked by firmware on
+this machine, so the write path has been exercised only against a refusal.
+
 ### Known limitations
 
 - Package domain only. DRAM, PP0 and PP1 are not implemented.

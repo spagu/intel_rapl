@@ -92,6 +92,13 @@ Cap sustained power at 10 W:
 sysctl hw.intel_rapl.pl1_watts=10
 .Ed
 .Sh COMPATIBILITY
+Developed and tested on a Dell XPS 13 9343
+.Pq Core i7-5600U, Broadwell-U, 15 W package TDP
+running
+.Fx 15.1-RELEASE-p3 .
+On that machine the firmware locks the limit register, so the write path has
+been exercised only against a refusal.
+.Pp
 Intel processors from Sandy Bridge onwards.
 Support is detected by probing
 .Dv MSR_RAPL_POWER_UNIT

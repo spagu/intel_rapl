@@ -21,8 +21,8 @@ fastest way to tell a cooling problem from a configuration one.
 
 ## What it measures, on real hardware
 
-From a Dell Latitude E7450, Core i7-5600U, 15 W TDP, with a heatsink overdue
-for cleaning:
+Dell XPS 13 9343, Core i7-5600U (Broadwell-U), 15 W TDP, FreeBSD
+15.1-RELEASE-p3, with a heatsink overdue for cleaning:
 
 ```
 idle              3.5 - 6.4 W      52 C
@@ -33,6 +33,23 @@ after stopping         2.2 W
 Sustained draw of 18-21 W against a 15 W design point, which is what a
 degraded thermal path looks like from the software side. Without this driver
 the same machine only reports "hot and slow".
+
+## Tested hardware
+
+Every figure in this README was read from this machine, not estimated:
+
+| | |
+|---|---|
+| Model | Dell XPS 13 9343 |
+| BIOS | A20 |
+| CPU | Intel Core i7-5600U (Broadwell-U) |
+| Package TDP | 15 W, from `MSR_PKG_POWER_INFO` |
+| System | FreeBSD 15.1-RELEASE-p3, amd64 |
+| Limit register | locked by firmware |
+
+Reports from other hardware are welcome, particularly from machines where the
+limit register is *not* locked — the write path has necessarily been tested
+only against a refusal here.
 
 ## Scope
 
@@ -110,8 +127,8 @@ sysctl: hw.intel_rapl.pl1_watts=10: Operation not permitted
 ```
 
 Many vendors lock `MSR_PKG_POWER_LIMIT` in firmware, after which the register
-is read-only until the next reset. The Latitude above does exactly this, so on
-that machine the driver can measure but not intervene.
+is read-only until the next reset. The XPS above does exactly this, so on that
+machine the driver can measure but not intervene.
 
 Writes are always verified by reading the register back, because a locked
 register accepts a write and silently discards it. Reporting `EPERM` is more
