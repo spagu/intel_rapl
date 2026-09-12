@@ -107,7 +107,37 @@ hw.intel_rapl.power_mw: 18761
 | `locked` | firmware sealed the limit register — writes will fail |
 | `pl1_watts` | sustained power limit, read/write |
 | `pl2_watts` | short-term burst limit, read/write |
+| `pl1_window_sec` | interval the sustained limit is averaged over, read/write |
+| `pl2_window_sec` | interval the burst limit is averaged over, read/write |
+| `min_allowed_watts` | lowest limit this driver will accept, read/write |
+| `max_allowed_watts` | highest it will accept; `0` disables the check |
 | `power_mw` | actual package power since the previous read |
+
+### The averaging window matters as much as the limit
+
+`pl1_watts` alone does not determine temperature - the same figure averaged
+over one second and over thirty behaves very differently. The XPS ships with
+a 28 second window:
+
+```sh
+sysctl hw.intel_rapl.pl1_window_sec
+hw.intel_rapl.pl1_window_sec: 28
+```
+
+A long window lets the package run well above its limit for tens of seconds
+before anything intervenes, which is exactly the burst behaviour a laptop
+wants and exactly the wrong thing when the heatsink cannot keep up. Shortening
+it makes the limit bite sooner.
+
+### Bounds
+
+`min_allowed_watts` and `max_allowed_watts` are the driver's own guard rails,
+not the hardware's. They are seeded from `MSR_PKG_POWER_INFO` where it reports
+a range and fall back to 5 W and twice TDP where it does not - which is the
+common case: on the XPS only the TDP field is populated, so trusting the
+hardware alone would leave no ceiling at all.
+
+Both are writable, so an operator who knows their hardware can widen them.
 
 Lowering the sustained limit:
 

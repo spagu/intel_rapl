@@ -59,21 +59,49 @@
 #define	PKG_INFO_MAX_SHIFT	32		/* bits 46:32 */
 
 /*
- * Refuse to set a sustained limit below this.  A package limit in the
- * single-digit watts starves the CPU to the point where the machine
- * looks broken rather than slow, and recovering needs a reboot if the
- * user cannot type fast enough to undo it.
+ * Default guard rails for what a limit may be set to.
+ *
+ * A package starved into the low single-digit watts looks broken rather than
+ * slow, and undoing it needs a shell responsive enough to type into.  The
+ * ceiling exists because MSR_PKG_POWER_INFO does not always report one: on
+ * the XPS 13 9343 only the TDP field is populated and the min/max fields read
+ * as zero, so trusting the hardware alone would leave no upper bound at all.
+ *
+ * Both are starting values only - they are exposed as writable sysctls so an
+ * operator who knows their hardware can widen or narrow them.
  */
-#define	RAPL_MIN_SANE_WATTS	5
+#define	RAPL_DEFAULT_MIN_WATTS	5
+#define	RAPL_DEFAULT_MAX_FACTOR	2	/* fallback ceiling: TDP x this */
 
+/*
+ * Time window encoding for MSR_PKG_POWER_LIMIT, bits 23:17.
+ *
+ *	window = 2^Y * (1 + Z/4) * time_unit
+ *
+ * with Y in bits 21:17 and Z in bits 23:22.  This is the interval the
+ * sustained limit is averaged over, and it matters as much as the limit
+ * itself: the same PL1 with a 1 s window and a 30 s window produce very
+ * different thermal behaviour.
+ */
+#define	PKG_LIMIT_TIME_Y_SHIFT	17
+#define	PKG_LIMIT_TIME_Y_MASK	0x1fULL
+#define	PKG_LIMIT_TIME_Z_SHIFT	22
+#define	PKG_LIMIT_TIME_Z_MASK	0x03ULL
+#define	RAPL_MAX_WINDOW_SEC	128
+
+#ifdef _KERNEL
 struct rapl_softc {
 	uint32_t	power_unit_shift;
 	uint32_t	energy_unit_shift;
 	uint32_t	time_unit_shift;
 
 	uint32_t	tdp_watts;
-	uint32_t	min_watts;
-	uint32_t	max_watts;
+	uint32_t	hw_min_watts;	/* as reported, 0 when absent */
+	uint32_t	hw_max_watts;
+
+	/* enforced bounds - writable, seeded from the hardware */
+	uint32_t	min_allowed;
+	uint32_t	max_allowed;
 
 	bool		locked;
 
@@ -83,5 +111,15 @@ struct rapl_softc {
 	uint32_t	last_mw;
 	struct mtx	sample_lock;
 };
+#endif /* _KERNEL */
+
+/*
+ * Pure helpers, shared with the unit tests.  These touch no MSRs and no
+ * softc, so they can be compiled and exercised in userland.
+ */
+uint32_t rapl_window_decode(uint32_t field, uint32_t time_shift);
+uint32_t rapl_window_encode(uint32_t seconds, uint32_t time_shift);
+int	 rapl_check_bounds(uint32_t watts, uint32_t min_allowed,
+	    uint32_t max_allowed);
 
 #endif /* _INTEL_RAPL_H_ */

@@ -3,6 +3,35 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-09-12
+
+### Added
+
+- `hw.intel_rapl.pl1_window_sec` and `pl2_window_sec` - the interval each
+  limit is averaged over, read/write. The encoding was already decoded in the
+  header but never exposed; without it the limit tells only half the story,
+  since the same figure over a 1 s and a 30 s window behave very differently.
+- `hw.intel_rapl.min_allowed_watts` and `max_allowed_watts` - the driver's own
+  bounds, writable, seeded from the hardware where it reports a range.
+- Unit tests for the encodings (`tests/unit`), 23 checks. They compile and run
+  in userland against known values decoded by hand from the SDM formula.
+- A port skeleton under `ports/intel_rapl-kmod`.
+
+### Fixed
+
+- The ceiling check never ran. It was written as
+  `max_watts != 0 && watts > max_watts`, and `MSR_PKG_POWER_INFO` reports zero
+  for the min/max fields on the XPS 13 9343 - only the TDP field is populated.
+  There was in effect no upper bound at all. The bounds now fall back to twice
+  TDP when the hardware declines to say.
+
+### Changed
+
+- Pure arithmetic moved to `src/rapl_calc.c` so it compiles outside the kernel
+  and can be tested without hardware. This matters more than it sounds: on
+  firmware-locked machines the MSR write path is never reached, so the bounds
+  check could not otherwise be exercised at all.
+
 ## [0.1.0] - 2026-09-12
 
 First working version. Written because FreeBSD has no way to read or set the

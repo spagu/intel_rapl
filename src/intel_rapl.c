@@ -97,10 +97,9 @@ rapl_set_limit(bool pl2, uint32_t watts)
 
 	if (sc.locked)
 		return (EPERM);
-	if (watts < RAPL_MIN_SANE_WATTS)
-		return (EINVAL);
-	if (sc.max_watts != 0 && watts > sc.max_watts)
-		return (EINVAL);
+	error = rapl_check_bounds(watts, sc.min_allowed, sc.max_allowed);
+	if (error != 0)
+		return (error);
 
 	error = rapl_read_limit(&reg);
 	if (error != 0)
@@ -226,6 +225,50 @@ sysctl_rapl_pl(SYSCTL_HANDLER_ARGS)
 }
 
 static int
+sysctl_rapl_window(SYSCTL_HANDLER_ARGS)
+{
+	uint64_t reg;
+	uint32_t sec, field;
+	bool pl2 = (arg2 != 0);
+	int shift, error;
+
+	shift = pl2 ? PKG_LIMIT_PL2_SHIFT : 0;
+
+	error = rapl_read_limit(&reg);
+	if (error != 0)
+		return (error);
+
+	field = (uint32_t)((reg >> (shift + PKG_LIMIT_TIME_Y_SHIFT)) &
+	    PKG_LIMIT_TIME_MASK);
+	sec = rapl_window_decode(field, sc.time_unit_shift);
+
+	error = sysctl_handle_int(oidp, &sec, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+
+	if (sc.locked)
+		return (EPERM);
+
+	field = rapl_window_encode(sec, sc.time_unit_shift);
+	reg &= ~(PKG_LIMIT_TIME_MASK << (shift + PKG_LIMIT_TIME_Y_SHIFT));
+	reg |= (uint64_t)field << (shift + PKG_LIMIT_TIME_Y_SHIFT);
+
+	error = wrmsr_safe(MSR_PKG_POWER_LIMIT, reg);
+	if (error != 0)
+		return (error);
+
+	/* same reason as for the limit itself: a locked register lies */
+	error = rapl_read_limit(&reg);
+	if (error != 0)
+		return (error);
+	if (((reg >> (shift + PKG_LIMIT_TIME_Y_SHIFT)) & PKG_LIMIT_TIME_MASK)
+	    != field)
+		return (EPERM);
+
+	return (0);
+}
+
+static int
 sysctl_rapl_power(SYSCTL_HANDLER_ARGS)
 {
 	uint32_t mw;
@@ -278,11 +321,22 @@ rapl_init(void)
 
 	if (rdmsr_safe(MSR_PKG_POWER_INFO, &info) == 0) {
 		sc.tdp_watts = rapl_units_to_watts(info & PKG_INFO_TDP_MASK);
-		sc.min_watts = rapl_units_to_watts((info >> PKG_INFO_MIN_SHIFT) &
-		    PKG_INFO_TDP_MASK);
-		sc.max_watts = rapl_units_to_watts((info >> PKG_INFO_MAX_SHIFT) &
-		    PKG_INFO_TDP_MASK);
+		sc.hw_min_watts = rapl_units_to_watts(
+		    (info >> PKG_INFO_MIN_SHIFT) & PKG_INFO_TDP_MASK);
+		sc.hw_max_watts = rapl_units_to_watts(
+		    (info >> PKG_INFO_MAX_SHIFT) & PKG_INFO_TDP_MASK);
 	}
+
+	/*
+	 * Seed the enforced bounds from the hardware where it reports them,
+	 * and fall back where it does not.  Leaving max at zero would mean no
+	 * ceiling at all, which is exactly the case on hardware that fills in
+	 * only the TDP field.
+	 */
+	sc.min_allowed = sc.hw_min_watts != 0 ? sc.hw_min_watts :
+	    RAPL_DEFAULT_MIN_WATTS;
+	sc.max_allowed = sc.hw_max_watts != 0 ? sc.hw_max_watts :
+	    sc.tdp_watts * RAPL_DEFAULT_MAX_FACTOR;
 
 	if (rapl_read_limit(&limit) == 0)
 		sc.locked = (limit & PKG_LIMIT_LOCKED) != 0;
@@ -306,8 +360,14 @@ rapl_init(void)
 	    OID_AUTO, "tdp_watts", CTLFLAG_RD, &sc.tdp_watts, 0,
 	    "Package thermal design power (W)");
 	SYSCTL_ADD_UINT(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
-	    OID_AUTO, "max_watts", CTLFLAG_RD, &sc.max_watts, 0,
-	    "Highest limit the hardware accepts (W)");
+	    OID_AUTO, "hw_max_watts", CTLFLAG_RD, &sc.hw_max_watts, 0,
+	    "Ceiling reported by the hardware (W), 0 when not reported");
+	SYSCTL_ADD_UINT(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
+	    OID_AUTO, "min_allowed_watts", CTLFLAG_RW, &sc.min_allowed, 0,
+	    "Lowest limit this driver will accept (W)");
+	SYSCTL_ADD_UINT(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
+	    OID_AUTO, "max_allowed_watts", CTLFLAG_RW, &sc.max_allowed, 0,
+	    "Highest limit this driver will accept (W), 0 disables the check");
 	SYSCTL_ADD_BOOL(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
 	    OID_AUTO, "locked", CTLFLAG_RD, &sc.locked, 0,
 	    "Firmware locked the limit register; writes will fail");
@@ -321,12 +381,23 @@ rapl_init(void)
 	    NULL, 1, sysctl_rapl_pl, "IU",
 	    "Short-term burst power limit (W)");
 	SYSCTL_ADD_PROC(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
+	    OID_AUTO, "pl1_window_sec",
+	    CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+	    NULL, 0, sysctl_rapl_window, "IU",
+	    "Interval the sustained limit is averaged over (s)");
+	SYSCTL_ADD_PROC(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
+	    OID_AUTO, "pl2_window_sec",
+	    CTLTYPE_UINT | CTLFLAG_RW | CTLFLAG_MPSAFE,
+	    NULL, 1, sysctl_rapl_window, "IU",
+	    "Interval the burst limit is averaged over (s)");
+
+	SYSCTL_ADD_PROC(&rapl_sysctl_ctx, SYSCTL_CHILDREN(rapl_sysctl_tree),
 	    OID_AUTO, "power_mw", CTLTYPE_UINT | CTLFLAG_RD | CTLFLAG_MPSAFE,
 	    NULL, 0, sysctl_rapl_power, "IU",
 	    "Average package power since previous read (mW)");
 
-	printf("intel_rapl: package TDP %u W, limits %u-%u W%s\n",
-	    sc.tdp_watts, sc.min_watts, sc.max_watts,
+	printf("intel_rapl: package TDP %u W, accepting %u-%u W%s\n",
+	    sc.tdp_watts, sc.min_allowed, sc.max_allowed,
 	    sc.locked ? ", register locked by firmware" : "");
 
 	return (0);

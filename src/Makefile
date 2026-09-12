@@ -9,7 +9,7 @@
 #   make install  install into /boot/modules
 
 KMOD=	intel_rapl
-SRCS=	intel_rapl.c
+SRCS=	intel_rapl.c rapl_calc.c
 
 .if !exists(${.CURDIR}/../VERSION)
 .error VERSION file missing - cannot set RAPL_DRV_VERSION
