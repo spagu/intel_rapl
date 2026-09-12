@@ -1,0 +1,113 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\" Copyright (c) 2026 Rafal Rabczuk
+.Dd September 12, 2026
+.Dt INTEL_RAPL 4
+.Os
+.Sh NAME
+.Nm intel_rapl
+.Nd Intel package power limits and power measurement
+.Sh SYNOPSIS
+To load the driver at boot, add to
+.Xr rc.conf 5 :
+.Bd -literal -offset indent
+kld_list="intel_rapl"
+.Ed
+.Sh DESCRIPTION
+The
+.Nm
+driver exposes the Intel RAPL
+.Pq Running Average Power Limit
+package domain, allowing the processor's power envelope to be read and, where
+the firmware permits, changed.
+.Pp
+.Xr cpufreq 4
+and
+.Xr powerd 8
+control frequency.
+.Nm
+controls power, which on a thermally constrained machine is the more useful
+lever: the processor manages its own frequency to stay inside the envelope
+rather than being held below a ceiling regardless of available headroom.
+.Pp
+Only the package domain is implemented.
+.Sh SYSCTL VARIABLES
+.Bl -tag -width ".Va hw.intel_rapl.pl1_watts"
+.It Va hw.intel_rapl.tdp_watts
+Package thermal design power, in watts.
+Read-only.
+.It Va hw.intel_rapl.max_watts
+Highest limit the hardware advertises.
+Zero when the firmware leaves the field unpopulated.
+Read-only.
+.It Va hw.intel_rapl.locked
+Non-zero when the firmware has sealed
+.Dv MSR_PKG_POWER_LIMIT .
+Attempts to change a limit then fail with
+.Er EPERM .
+Read-only.
+.It Va hw.intel_rapl.pl1_watts
+Sustained power limit, in watts.
+This is the figure that governs steady-state temperature.
+.It Va hw.intel_rapl.pl2_watts
+Short-term burst limit, in watts.
+.It Va hw.intel_rapl.power_mw
+Average package power, in milliwatts, over the interval since the previous
+read of this variable.
+Read-only.
+.El
+.Sh IMPLEMENTATION NOTES
+.Va power_mw
+is derived from
+.Dv MSR_PKG_ENERGY_STATUS ,
+a free-running counter of consumed energy units, so it describes a rate rather
+than an instant.
+Two reads separated by a few seconds are needed for a meaningful figure; reads
+closer together than 200 milliseconds return the previous result instead of
+dividing by a near-zero interval.
+.Pp
+Writes are verified by reading the register back.
+A locked register accepts a write and discards it silently, so reporting the
+refusal is more useful than reporting a success that did not occur.
+.Pp
+Limits below 5 watts are refused, as is any limit above what the hardware
+advertises.
+The limit register is updated read-modify-write so that the time window,
+enable, clamp and lock bits are preserved.
+.Sh EXAMPLES
+Read everything the driver reports:
+.Bd -literal -offset indent
+sysctl hw.intel_rapl
+.Ed
+.Pp
+Measure power under load, sampling twice so the second reading covers a
+meaningful interval:
+.Bd -literal -offset indent
+sysctl -n hw.intel_rapl.power_mw > /dev/null
+sleep 5
+sysctl -n hw.intel_rapl.power_mw
+.Ed
+.Pp
+Cap sustained power at 10 W:
+.Bd -literal -offset indent
+sysctl hw.intel_rapl.pl1_watts=10
+.Ed
+.Sh COMPATIBILITY
+Intel processors from Sandy Bridge onwards.
+Support is detected by probing
+.Dv MSR_RAPL_POWER_UNIT
+rather than by a model table.
+.Sh SEE ALSO
+.Xr cpufreq 4 ,
+.Xr acpi_thermal 4 ,
+.Xr powerd 8 ,
+.Xr sysctl 8
+.Sh HISTORY
+The
+.Nm
+driver first appeared as an out-of-tree module in 2026.
+.Sh AUTHORS
+.An Rafal Rabczuk
+.Sh BUGS
+On hardware where the firmware locks the limit register the driver can measure
+but not intervene.
+There is no way around this from the operating system.

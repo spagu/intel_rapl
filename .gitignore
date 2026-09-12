@@ -1,0 +1,13 @@
+# build artifacts
+*.o
+*.ko
+*.ko.debug
+*.ko.full
+.depend*
+machine
+x86
+i386
+opt_*.h
+export_syms
+*_if.[ch]
+.tmp_*
