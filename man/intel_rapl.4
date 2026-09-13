@@ -8,10 +8,40 @@
 .Nd Intel package power limits and power measurement
 .Sh SYNOPSIS
 To load the driver at boot, add to
-.Xr rc.conf 5 :
+.Xr loader.conf 5 :
+.Bd -literal -offset indent
+intel_rapl_load="YES"
+.Ed
+.Pp
+.Xr rc.conf 5
+works too, and is the usual place for a module with no early-boot role:
 .Bd -literal -offset indent
 kld_list="intel_rapl"
 .Ed
+.Pp
+Append to an existing
+.Va kld_list
+rather than replacing it; the variable holds every module the system loads
+that way.
+.Pp
+Prefer
+.Xr loader.conf 5
+when any
+.Va hw.intel_rapl
+setting is to be made persistent in
+.Xr sysctl.conf 5 .
+.Pa /etc/rc.d/sysctl
+is the first script
+.Xr rcorder 8
+runs, long before
+.Pa /etc/rc.d/kld ,
+so a limit written to
+.Xr sysctl.conf 5
+is applied while a module loaded from
+.Va kld_list
+does not yet exist, and fails with
+.Dq unknown oid .
+The loader has the module in memory before any startup script runs.
 .Sh DESCRIPTION
 The
 .Nm
@@ -104,9 +134,13 @@ Support is detected by probing
 .Dv MSR_RAPL_POWER_UNIT
 rather than by a model table.
 .Sh SEE ALSO
-.Xr cpufreq 4 ,
 .Xr acpi_thermal 4 ,
+.Xr cpufreq 4 ,
+.Xr loader.conf 5 ,
+.Xr rc.conf 5 ,
+.Xr sysctl.conf 5 ,
 .Xr powerd 8 ,
+.Xr rcorder 8 ,
 .Xr sysctl 8
 .Sh HISTORY
 The

@@ -3,6 +3,22 @@
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Documented `loader.conf` as the way to load the driver at boot**, and said
+  why. `rcorder` runs `/etc/rc.d/sysctl` first and `/etc/rc.d/kld` twenty-five
+  places later, so a `hw.intel_rapl` setting placed in `sysctl.conf` is applied
+  before a module loaded from `kld_list` exists and fails with `unknown oid`.
+  The README and `intel_rapl(4)` previously recommended `kld_list` without
+  qualification. Both now also warn that `kld_list` must be appended to rather
+  than replaced, show how to confirm the module loaded, and explain that
+  `register locked by firmware` means there is nothing to persist beyond the
+  module itself.
+- `SEE ALSO` in `intel_rapl(4)` lists the configuration files the driver is
+  set up through, in the order `mandoc -T lint` expects.
+
 ## [0.2.0] - 2026-09-12
 
 ### Added

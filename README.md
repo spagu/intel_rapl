@@ -77,14 +77,49 @@ sudo make load
 make status
 ```
 
-To load at boot, add to `/etc/rc.conf`:
+### Loading at boot
+
+Add to `/boot/loader.conf`:
+
+```sh
+intel_rapl_load="YES"
+```
+
+`/etc/rc.conf` works too, and is the usual home for a module with nothing to do
+early in boot:
 
 ```sh
 kld_list="intel_rapl"
 ```
 
-`/boot/loader.conf` works too, but `kld_list` is preferred: it runs after the
-filesystems are mounted, which avoids a class of early-boot surprises.
+`kld_list` holds every module loaded that way, so **append** to it rather than
+replacing whatever is already there.
+
+Prefer `loader.conf` if you want any `hw.intel_rapl` setting to survive a
+reboot through `/etc/sysctl.conf`. `rcorder` puts `/etc/rc.d/sysctl` first and
+`/etc/rc.d/kld` twenty-five places later:
+
+```sh
+$ rcorder /etc/rc.d/* | grep -nE '/(sysctl|kld)$'
+1:/etc/rc.d/sysctl
+26:/etc/rc.d/kld
+```
+
+A limit written to `sysctl.conf` is therefore applied while a module loaded
+from `kld_list` does not yet exist, and fails with `unknown oid`. The loader
+has the module in memory before any startup script runs.
+
+Check that it took:
+
+```sh
+$ kldstat | grep intel_rapl
+$ dmesg | grep intel_rapl
+intel_rapl: package TDP 15 W, accepting 5-30 W, register locked by firmware
+```
+
+`register locked by firmware` means `MSR_PKG_POWER_LIMIT` has its lock bit set
+and the limits are read-only until the next power cycle, so there is nothing to
+persist beyond the module itself. `hw.intel_rapl.locked` reports the same.
 
 ## Use
 
